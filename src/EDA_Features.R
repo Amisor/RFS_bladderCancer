@@ -8,6 +8,7 @@ library(car)
 library(glmnet)
 library(timeROC)
 library(Hmisc)
+library(colorspace)
 
 # -------------------------- Read data -------------------------------------
 
@@ -21,23 +22,39 @@ v <- as.data.frame(readRDS("./data/knowles_matched_TaLG_final.rds"))
 # Compare if the two datasets have the same column names
 
 if (setequal(names(t),names(v)) == FALSE ){
-  print("The training and validation datasets don't contain the same variables")
+  print("The training and validation datasets 
+        don't contain the same variables")
 }else{
-    print("The training and validation datasets contain the same variables")
+    print("The training and validation 
+          datasets contain the same variables")
   }
 
 t_no_v <- setdiff(names(t), names(v)) 
 cat("Training dataset variables not available in the validation dataset:", t_no_v)
-# "UROMOL.ID"  "Smoking"        "Tumor.size" Ta     "Incident.tumor" low grade "EAU.risk"   
+# "UROMOL.ID"  "Smoking"  "Tumor.size"  "Incident.tumor" low grade "EAU.risk"   
 
 v_no_t <- setdiff(names(v), names(t))
 cat("Validation dataset variables not available in the training dataset:", v_no_t)
 # "knowles_ID"
 
-# Should I impute the three reminding variables ? 
+#-----------Standarized values in columns between the two datasets ---------
 
+# For the training dataset
+unique(t$UROMOL2021.classification)
 
-# -------------------------- Modify columns types
+t <- t %>%
+  mutate(UROMOL2021.classification = recode_factor(UROMOL2021.classification,
+                                 "Class 1" = "Class_1",
+                                 "Class 2b" = "Class_2b",
+                                 "Class 2a" = "Class_2a",
+                                 "Class 3" = "Class_3"))
+unique(t$UROMOL2021.classification)
+
+# For the validation dataset
+unique(v$UROMOL2021.classification)
+# Now they both have the same labels
+
+# ---------------------------Modify columns types --------------------------
 #View(t) # Identify the columns types
 names(t) # Retrieve names to mdoofy format
 
@@ -55,14 +72,22 @@ cols_to_factor <- c("Progression",
                     "UROMOL2021.classification" 
                     )
 
-
-for (col in cols_to_factor) {
-  t[[col]] <- as.factor(t[[col]])
+FactorConvert <- function(t, cols_to_factor){
+  for (col in cols_to_factor) {
+    if (col %in% names(t)){
+      t[[col]] <- as.factor(t[[col]])
+    }
+  }
+  return(t)
 }
 
-unique(t$Tumor.stage)
+# Transform variables to categorical
+t <- FactorConvert(t, cols_to_factor)
+v <- FactorConvert(v, cols_to_factor)
+
+# Constant values
+unique(t$Tumor.stage) 
 unique(t$Tumor.grade)
-unique(t$Incident.tumor)
 
 # ---------------------Summary Table ----------------------------
 # Function to obtain variables types, number of nans, levels or range
@@ -127,6 +152,88 @@ SummaryTable <- function(df) {
 }
 
 summary_t <- SummaryTable(t)
+summary_v <- SummaryTable(v)
+
+# ------------------------ Histogram --------------------------
+# Function to plot categorical variables
+PlotCategorical <- function(t, cat_vars, colors){
+  # One plot per variable
+  par(mfrow = c(2, 3),
+      mar   = c(4, 2, 2, 2),  # shrink margins around each subplot
+      oma   = c(1, 1, 1, 1)   # no outer margins
+  )
+  
+  for (i in 1:length(cat_vars)) {
+    var <- cat_vars[i]
+    bar_data <- table(t[[var]])
+    barplot(bar_data,
+            main = paste(var),
+            col = colors[i],
+            las = 2,  # rotate axis labels
+            cex.names = 0.8, # smaller category labels
+            cex.main = 0.8, # title smaller
+            cex.axis = 0.8)  
+  }
+  par(mfrow = c(1, 1))  # Reset layout
+}
+
+PlotCategorical <- function(t, cat_vars, colors) {
+  # One plot per variable
+  par(mfrow = c(2, 3),
+      mar   = c(4, 2, 2, 2),  # Shrink margins around each subplot
+      oma   = c(1, 1, 1, 1)   # No outer margins
+  )
+  
+  for (i in 1:length(cat_vars)) {
+    var <- cat_vars[i]
+    
+    # Check if the variable is "Age"
+    if (var == "Age") {
+      hist(t[[var]], breaks = 4, 
+           main = paste(var),
+           col = colors[i],
+           xlab = var,
+           cex.main = 0.8,  # Smaller title
+           cex.axis = 0.8)  # Smaller axis labels
+    } else {
+      bar_data <- table(t[[var]])
+      barplot(bar_data,
+              main = paste(var),
+              col = colors[i],
+              las = 2,  # Rotate axis labels
+              cex.names = 0.8,  # Smaller category labels
+              cex.main = 0.8,  # Title smaller
+              cex.axis = 0.8)  
+    }
+  }
+  
+  par(mfrow = c(1, 1))  # Reset layout
+}
+
+# Get categorical columns
+omit_vars <- c("UROMOL.ID", "knowles_ID", "Progression", "Smoking", "Tumor.stage",
+               "Tumor.grade", "Tumor.size", "Incident.tumor", "EAU.risk")
+
+# Categorical variables (shared in training and validation sets)
+cat_vars <- names(t)[sapply(t, function(x) is.factor(x) || is.character(x))]
+cat_vars <- cat_vars[!cat_vars %in% omit_vars]
+cat_vars <- append(cat_vars, "Age")
+cat_vars
+
+# Colors
+colors1 <- rainbow(length(cat_vars))
+colors2 <- darken(rainbow(length(cat_vars)), amount = 0.3)  # 30% darker
+
+# Plot training 
+PlotCategorical(t, cat_vars, colors1)
+
+# Plot validation
+PlotCategorical(v, cat_vars, colors2)
+
+unique(v$Tumor.size)
+# Counts
+#lapply(cat_vars, function(var) table(t[[var]], useNA = "ifany"))
+
 
 # -------------------------------- Correlation ------------------
 # Function to compute correlation between the different variables 
@@ -172,6 +279,67 @@ CorrVariables <- function(df, cols_cor) {
   return(corr_matrix)
 }
 
+# Version 2 of correlation of variables
+CorrVariables <- function(df, cols_cor) {
+  df_subset <- df[cols_cor]
+  n <- length(cols_cor)
+  corr_matrix <- matrix(NA, nrow = n, ncol = n,
+                        dimnames = list(cols_cor, cols_cor))
+  
+  for (i in 1:n) {
+    for (j in 1:n) {
+      
+      # Set self-correlation to 1
+      if (i == j) {
+        corr_matrix[i, j] <- 1
+        next
+      }
+      
+      x <- df_subset[[i]]
+      y <- df_subset[[j]]
+      
+      # Remove rows with NA in either variable
+      complete_cases <- complete.cases(x, y)
+      x <- x[complete_cases]
+      y <- y[complete_cases]
+      
+      if (is.numeric(x) && is.numeric(y)) {
+        # Pearson correlation for numeric vs numeric
+        corr_matrix[i, j] <- cor(x, y, method = "pearson")
+      } else if ((is.factor(x) || is.character(x)) &&
+                 (is.factor(y) || is.character(y))) {
+        # Cramér's V for categorical vs categorical
+        tab <- table(x, y)
+        corr_matrix[i, j] <- suppressWarnings(assocstats(tab)$cramer)
+      } else if (is.numeric(x) && length(unique(y)) == 2) {
+        # Point-biserial for numeric vs binary categorical
+        corr_matrix[i, j] <- cor(x, as.numeric(as.factor(y)), method = "pearson")
+      } else if (is.numeric(y) && length(unique(x)) == 2) {
+        corr_matrix[i, j] <- cor(as.numeric(as.factor(x)), y, method = "pearson")
+      } else if (is.numeric(x) && (is.factor(y) || is.character(y))) {
+        # Correlation ratio (eta) for numeric vs categorical (with >2 levels)
+        y <- as.factor(y)
+        eta <- sqrt(sum(tapply(x, y, function(sub) {
+          n_i <- length(sub)
+          (mean(sub) - mean(x))^2 * n_i
+        })) / sum((x - mean(x))^2))
+        corr_matrix[i, j] <- eta
+      } else if (is.numeric(y) && (is.factor(x) || is.character(x))) {
+        # Correlation ratio (eta) for categorical vs numeric
+        x <- as.factor(x)
+        eta <- sqrt(sum(tapply(y, x, function(sub) {
+          n_i <- length(sub)
+          (mean(sub) - mean(y))^2 * n_i
+        })) / sum((y - mean(y))^2))
+        corr_matrix[i, j] <- eta
+      } else {
+        corr_matrix[i, j] <- NA  # not supported
+      }
+    }
+  }
+  return(corr_matrix)
+}
+
 # Function to plot the heatmap of the correlation
 CorrHeatmap <- function(corr_matrix) {
   melted_corr <- melt(corr_matrix, na.rm = TRUE)
@@ -207,6 +375,7 @@ t_corr <- CorrVariables(t,cols_cor)
 
 # Plot correlations
 CorrHeatmap(t_corr)
+names(t)
 
 # For computing the correlation, the NA values are omitted automatically right? 
 
@@ -218,12 +387,14 @@ hist(t$PFS_time., main = "PFS_time", xlab = "Time (days)", col = "salmon", break
 hist(t$FUtime_days., main = "FUtime_days", xlab = "Time (days)", col = "lightgreen", breaks = 30)
 par(mfrow = c(1, 1))  # Reset layout
 
-plot(density(t$FUtime_days., na.rm = TRUE), col = "darkgreen", main = "Density of Follow-up, RFS, PFS", xlab = "Days")
-lines(density(t$RFS_time, na.rm = TRUE), col = "blue")
-lines(density(t$PFS_time., na.rm = TRUE), col = "red")
-legend("topright", legend = c("FUtime", "RFS", "PFS"), col = c("darkgreen", "blue", "red"), lty = 1)
+#plot(density(t$FUtime_days., na.rm = TRUE), col = "darkgreen", main = "Density of Follow-up, RFS, PFS", xlab = "Days")
+#lines(density(t$RFS_time, na.rm = TRUE), col = "blue")
+#lines(density(t$PFS_time., na.rm = TRUE), col = "red")
+#legend("topright", legend = c("FUtime", "RFS", "PFS"), col = c("darkgreen", "blue", "red"), lty = 1)
 
-par(mfrow = c(1, 3))  # Show 3 plots side by side
+par(mfrow = c(1, 3),
+    mar   = c(4, 2, 2, 2),  # Shrink margins around each subplot
+    oma   = c(1, 1, 1, 1))  # Show 3 plots side by side
 plot(t$RFS_time, t$PFS_time., xlab = "RFS_time", ylab = "PFS_time", 
      main = "Recurrence vs Progression", col = "purple", pch = 19)
 plot(t$RFS_time, t$FUtime_days., xlab = "RFS_time", ylab = "FUtime_days", 
@@ -251,6 +422,7 @@ table(t$recur_before_prog, useNA = "ifany")
 table(t$fu_before_events, useNA = "ifany")
 
 
+
 # ---------------------------------Remove NA  -------------------------------
 
 # Drop Na in Recurrence and RFS_time
@@ -273,12 +445,57 @@ t_new$Recurrence <- as.numeric(as.character(t_new$Recurrence))
 # Check that there are no error while converting the variable
 sum(is.na(t_new$Recurrence)) == 0
 
+str(t_new$exprs)
+dim(t_new$exprs)
+
+# ---------------------------Expression Data --------------------------
+# Gene with no variance 
+sd_vals <- apply(t_new$exprs, 2, sd)
+which(sd_vals == 0)  # Gives column indices with zero variance
+
+zero_var_genes <- names(sd_vals)[which(sd_vals == 0)]
+zero_var_genes
+
+View(t_new$exprs[, "LncRNA2747_ENSG00000256494"])
+
+# Remove zero-variance columns 
+t_new <- t_new$exprs[, sd_vals != 0]
+
+# Detect most variable genes 
+gene_vars <- apply(t$exprs, 2, var)
+sorted_gene_vars <- sort(gene_vars, decreasing = TRUE)
+head(sorted_gene_vars, 10)  # top 10 most variable genes
+names(head(sorted_gene_vars, 10))
+
+top_n <- 500
+top_genes <- names(sorted_gene_vars)[1:top_n]
+
+
+# Subset expression matrix to top genes
+exprs_top <- t_new$exprs[, top_genes]
+
+boxplot(exprs_top[, 1:50], 
+        las = 2, main = "Top 50 Most Variable Genes", outline = FALSE)
+
+# Scaling 
+exprs_top_z <- scale(exprs_top)
+
+names(t)
+
+# Now safely z-score
+z_exprs <- scale(t_exprs_filtered)
+
+summary(z_exprs[, 1])  # mean ~0 and SD ~1 for a gene
+unique(apply(z_exprs, 2, sd)) # SDs should be ~1, Por qué tengo un cero?
+
+#t$exprs_z <- z_exprs
+
 # -------------------------------PCA ----------------------------------
 str(t_new$exprs)
 dim(t_new$exprs)
 
 # PCA over the expression data 
-pca <- prcomp(t_new$exprs, scale. = TRUE)
+#pca <- prcomp(t_new$exprs, scale. = TRUE)
 
 # Proportion of variance explained by each PC
 #var_explained <- pca$sdev^2 / sum(pca$sdev^2)
@@ -399,7 +616,7 @@ c_index_neg
 
 
 # Define time points of interest (for example, in days: 1-year, 3-year, 5-year)
-times <- c(10, 20, 30) 
+times <- c(30, 45, 60) 
 
 # Calculate time-dependent ROC curves using your linear predictors
 roc_obj <- timeROC(T = t_model$RFS_time,
@@ -421,8 +638,8 @@ plot(roc_obj, time = times[2], col = "blue", add = TRUE)
 # Add ROC curve for 9 months
 plot(roc_obj, time = times[3], col = "green", add = TRUE)
 
-legend("bottomright",
-       legend = c("1-year", "3-year", "5-year"),
+legend("bottom",
+       legend = c("10 days", "20 days", "30 days"),
        col = c("red", "blue", "green"),
        lwd = 2)
 
@@ -434,7 +651,7 @@ legend("bottomright",
 # (Depending on the direction, you might want to negate the risk score if higher scores imply lower risk)
 risk_score <- as.vector(predict(final_model, newx = x, type = "link"))
 # Optionally, if needed (see previous discussion about inversion):
-# risk_score <- -risk_score
+risk_score <- -risk_score
 
 # Create risk groups (using the median as a cutoff)
 t_model$risk_group <- ifelse(risk_score > median(risk_score), "High Risk", "Low Risk")
