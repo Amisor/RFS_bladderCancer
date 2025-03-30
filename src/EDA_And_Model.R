@@ -387,7 +387,9 @@ all(is.na(t$Recurrence) == is.na(t$RFS_time))
 v_new <- v[!is.na(v$Recurrence) | !is.na(v$RFS_time), ]
 all(is.na(v$Recurrence) == is.na(v$RFS_time))
 sum(is.na(v_new$RFS_time))
-
+v_rec_0 <- v_new[v_new$Recurrence == 0, ]
+nrow(v_rec_0)
+sum(is.na(v_rec_0$RFS_time))
 
 cat("Before removing rows with NA in Recurrence or RFS_time in t: ", 
     nrow(t),
@@ -428,7 +430,7 @@ plot(t_new_recurrence_0$RFS_time, t_new_recurrence_0$FUtime_days,
 
 # Fill values of v_new 
 # Run this if imputing the values of RFS_time
-v_new$RFS_time[v_new$Recurrence == 0] <- v_new$FUtime_days.[v_new$Recurrence == 0] / 30
+#v_new$RFS_time[v_new$Recurrence == 0] <- v_new$FUtime_days.[v_new$Recurrence == 0] / 30
 
 # Convert Recurrence to numerical variable
 ## Training dataset
@@ -528,10 +530,17 @@ boxplot(t_new_genes[,1:20],
         las = 2, main = "Top 20 Most Variable Genes", outline = FALSE, col = rainbow(20), cex=0.9)
 dev.off()
 
+genes_interes <- c("TAF4", "ZBTB6", "DSC2", "CDKN2B", "TNFRSF10D", "ARHGEF25",  "BEST1",
+                   "MYO15A","BRSK1", "AATK", "PRR19",  "CHKB-DT", "AGGF1", "C10orf62", 
+                   "LINC02610", "RSPO2") 
+setdiff(genes_interes, colnames(t_new_genes))
 # Plot genes of interest
-boxplot(t_new_genes[,genes], 
-        las = 2, main = "Genes of Interes", outline = FALSE)
 
+png(filename = "./images/t_PredictorGenes.png", width = 1400, height = 1400, res = 300)
+par(oma = c(1, 1, 1, 1)) 
+boxplot(t_new_genes[,genes_interes], 
+        las = 2, main = "Predictor Genes", outline = FALSE, col = rainbow(20), cex=0.7)
+dev.off()
 # Kepp only variable genes in t
 t_new$exprs <- t_new_genes
 # Save z-score
@@ -658,7 +667,7 @@ dev.off()
 # -------------------------Training: Kaplan Meier -------------------------------
 
 # Obtain risk scores from your final model
-risk_score <- -as.vector(predict(final_model, newx = x, type = "link"))
+risk_score <- as.vector(predict(final_model, newx = x, type = "link"))
 
 # Create risk groups
 t_model$risk_group <- ifelse(risk_score > median(risk_score), "High Risk", "Low Risk")
